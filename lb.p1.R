@@ -3,10 +3,16 @@ library(tidyverse)
 library(lme4)
 library(psych)
 library(corrplot)
+library(mclust)
+library(patchwork)
+library(GGally)
+library(ade4)
+library(lavaan)
 #for the notation
 options(scipen=999)
 
-# clean data
+#### Clean Data ####
+
 DVs <- c("exi_1", "avl_1", "jus_1", "inv_1", "avd_1", "mot_1", "vul_1", "sen_1",
          "really_1", "consider_1", "predict_1", "context_1", 
          "surprise_1", "bet_1", "voluntarism_1", "double_1")
@@ -33,28 +39,7 @@ d$vul <- -1*(d$vul - 100)
 d$double <- -1*(d$double - 100)
 d$context <- -1*(d$context - 100)
 
-#### Factor analysis ####
-d.e <- d %>% 
-  dplyr::select(sen, exi, avl, jus, inv, avd, mot, vul)
-  
-
-## one factor solution
-one_factor <- fa(d.e, nfactors = 1, fm = "pa", rotate = "oblimin", scores = "tenBerge")
-one_factor <- data.frame(one_factor[["scores"]])
-colnames(one_factor)[colnames(one_factor) == "PA1"] <- "Evidence"
-
-## two factor solution
-two_factor <- fa(d.e, nfactors = 2, fm = "pa", rotate = "oblimin", scores = "tenBerge")
-two_factor <- data.frame(two_factor[["scores"]])
-colnames(two_factor)[colnames(two_factor) == "PA1"] <- "Available"
-colnames(two_factor)[colnames(two_factor) == "PA2"] <- "Transigence"
-
-## combine data
-d <- cbind(d, one_factor, two_factor)
-
-# correlation matrices
-
-## one factor
+# prepare for clustering
 d.c <- d %>% 
   dplyr::select(really, consider, predict, context,
                 surprise, bet, mot, jus, double, domain)
@@ -62,7 +47,6 @@ d.c <- d %>%
 vars <- c("really", "consider", "predict", "context",
           "surprise", "bet", "mot", "jus", "double")
 
-# Make matrix
 d.complete <- d.c[complete.cases(d.c[, c(vars, "domain")]), ]
 residuals_df <- data.frame(matrix(ncol = length(vars), nrow = nrow(d.complete)))
 colnames(residuals_df) <- vars
@@ -70,36 +54,170 @@ for(var in vars) {
   mod <- lmer(paste(var, "~ 1 + (1|domain)"), data = d.complete)
   residuals_df[[var]] <- residuals(mod)
 }
-c <- corr.test(residuals_df, method = "pearson", alpha = 0.05, adjust = "holm")
-corrplot(c$r, 
-         p.mat = c$p, 
-         method = "color", 
-         type = "upper", 
-         insig = "pch", 
-         pch = "/",
-         pch.col = "grey20",
-         pch.cex = 2,
-         addCoef.col = "black", 
-         diag = TRUE,
-         title = "All domains",
-         tl.col = "black",
-         tl.cex = 0.8,
-         tl.srt = 45,
-         cl.pos = "n",
-         mar = c(0,0,2,0)
+
+#### GMM ####
+# configure
+d.cluster <- residuals_df
+d.cluster <- d.complete %>% 
+  select(-domain)
+
+# how many clusters?
+m <- mclustBIC(d.cluster)
+summary(m)
+plot(m)
+ICL <- mclustICL(d.cluster)
+summary(ICL)
+
+# analysis
+mod1 <- Mclust(d.cluster, x = m, G=2, modelNames = "VVE")
+summary(mod1, parameters = TRUE)
+
+# plot
+plot(mod1, what = "classification")
+
+##### 2-cluster #####
+
+# Add cluster assignments to data
+d_with_clusters_gauss <- d.cluster
+d_with_clusters_gauss$cluster <- factor(m$classification,
+                                        labels=c("Group 1", "Group 2"))
+
+# Beautiful comprehensive pairs plot
+ggpairs(d_with_clusters_gauss, 
+        columns = c("really", "consider", "predict", "context", 
+                    "surprise", "bet", "mot", "jus", "double"),
+        aes(color = cluster, alpha = 0.6),
+        upper = list(continuous = wrap("cor", size = 3)),  # Correlations in upper
+        lower = list(continuous = wrap("points", alpha = 0.4, size = 0.8)),  # Scatter in lower
+        diag = list(continuous = wrap("densityDiag", alpha = 0.7))) +  # Densities on diagonal
+  scale_color_manual(values = c("#E69F00", "#56B4E9")) +
+  scale_fill_manual(values = c("#E69F00", "#56B4E9")) +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 6)) +
+  ggtitle("Gaussian Mixture Model (k=2): Complete Pairwise Analysis")
+
+##### similarity of covariance matrices #####
+
+# Convert to correlations (removes scale/variance effects)
+cor1 <- cov2cor(cov1)
+cor2 <- cov2cor(cov2)
+cor_full <- cov2cor(cov_full)
+
+# Frobenius distances on correlations
+frob_cor_between <- norm(cor1 - cor2, type = "F")
+frob_cor_g1_full <- norm(cor1 - cor_full, type = "F")
+frob_cor_g2_full <- norm(cor2 - cor_full, type = "F")
+
+# Normalize by number of unique correlations
+n_vars <- ncol(d.cluster)
+n_unique_cors <- n_vars * (n_vars - 1) / 2
+norm_factor <- sqrt(n_unique_cors)
+
+structural_similarity <- tibble(
+  Comparison = c("Group 1 vs Group 2", 
+                 "Group 1 vs Full",
+                 "Group 2 vs Full"),
+  Frobenius_Distance = c(frob_cor_between, frob_cor_g1_full, frob_cor_g2_full),
+  Normalized_Distance = c(frob_cor_between, frob_cor_g1_full, frob_cor_g2_full) / norm_factor,
+  Similarity_Percent = 100 * (1 - c(frob_cor_between, frob_cor_g1_full, frob_cor_g2_full) / norm_factor)
 )
 
-## two factor solution 
-d.t <- d %>% 
-  dplyr::select(Available, Transigence, really, consider, predict, context,
-                surprise, bet, voluntarism, double, domain)
+print(structural_similarity)
 
-vars <- c("Available", "Transigence", "really", "consider", "predict", "context",
-          "surprise", "bet", "voluntarism", "double")
+# Mantel test for Group 1 vs Group 2
+mantel_result <- mantel.rtest(as.dist(cor1), as.dist(cor2), nrepet = 9999)
+print(mantel_result)
 
-# Make matrix
-d.complete <- d.t[complete.cases(d.t[, c(vars, "domain")]), ]
-residuals_df <- data.frame(matrix(ncol = length(vars), nrow = nrow(d.complete)))
+# Also test each group vs full
+mantel_g1_full <- mantel.rtest(as.dist(cor1), as.dist(cor_full), nrepet = 9999)
+mantel_g2_full <- mantel.rtest(as.dist(cor2), as.dist(cor_full), nrepet = 9999)
+
+# Summary
+tibble(
+  Comparison = c("Group 1 vs Group 2", "Group 1 vs Full", "Group 2 vs Full"),
+  Mantel_r = c(mantel_result$obs, mantel_g1_full$obs, mantel_g2_full$obs),
+  p_value = c(mantel_result$pvalue, mantel_g1_full$pvalue, mantel_g2_full$pvalue)
+)
+
+
+##### CFA #####
+
+# Define single factor model
+cfa_model <- '
+  # Single latent factor
+  general =~ really + consider + predict + context + surprise + bet + mot + jus + double
+'
+
+# Fit the model
+fit_cfa <- cfa(cfa_model, data = d.cluster)
+
+# Summary with fit indices and standardized loadings
+summary(fit_cfa, fit.measures = TRUE, standardized = TRUE)
+
+# Extract key fit indices
+fit_indices <- fitMeasures(fit_cfa, c("chisq", "df", "pvalue", 
+                                      "cfi", "tli", "rmsea", "rmsea.ci.lower", "rmsea.ci.upper",
+                                      "srmr", "aic", "bic"))
+print(fit_indices)
+
+##### .5 SD of the mean of the factor scores (or something like that) and plot them on the individual item distributions
+
+#### Factor Score Range Overlay Visualization ####
+
+# Get factor scores
+factor_scores <- predict(fit_cfa)
+d_with_factors <- d.cluster %>%
+  mutate(factor_score = factor_scores[,1])
+
+# Identify individuals within ±0.5 SD of mean factor score
+mean_fs <- mean(d_with_factors$factor_score)
+sd_fs <- sd(d_with_factors$factor_score)
+
+lower_bound <- mean_fs - 0.5 * sd_fs
+upper_bound <- mean_fs + 0.5 * sd_fs
+
+# Flag individuals in this range
+d_with_factors <- d_with_factors %>%
+  mutate(in_middle_range = factor_score >= lower_bound & factor_score <= upper_bound)
+
+# Subset for middle range
+d_middle <- d_with_factors %>% filter(in_middle_range)
+
+# Calculate proportion for scaling
+prop_middle <- nrow(d_middle) / nrow(d_with_factors)
+
+# Create plots for each item
+item_names <- colnames(d.cluster)
+plots_list <- list()
+
+for(item in item_names) {
+  p <- ggplot() +
+    # Full distribution (background)
+    geom_density(data = d.cluster, aes(x = .data[[item]]), 
+                 fill = "gray70", alpha = 0.4, color = "black", linewidth = 0.8) +
+    # Middle range distribution (scaled overlay)
+    geom_density(data = d_middle, aes(x = .data[[item]], y = after_stat(density) * prop_middle), 
+                 fill = "#56B4E9", alpha = 0.7, color = "#0072B2", linewidth = 0.8) +
+    theme_minimal() +
+    labs(title = item, x = NULL, y = "Density") +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10))
+  
+  plots_list[[item]] <- p
+}
+
+# Combine
+wrap_plots(plots_list, ncol = 3) +
+  plot_annotation(
+    title = "Item Distributions: Full Sample vs. Middle Factor Scores",
+    subtitle = sprintf("Gray = All participants | Blue = Factor scores within ±0.5 SD (n = %d/%d, %.1f%%)",
+                       sum(d_with_factors$in_middle_range),
+                       nrow(d_with_factors),
+                       100 * mean(d_with_factors$in_middle_range)),
+    theme = theme(plot.title = element_text(size = 14, face = "bold"))
+  )
+
+#### Correlation plots ####
 colnames(residuals_df) <- vars
 for(var in vars) {
   mod <- lmer(paste(var, "~ 1 + (1|domain)"), data = d.complete)
@@ -237,6 +355,7 @@ corrplot(m,
          mar=c(0,0,2,0)
 )
 
+#### Distributions ####
 # Distributions of items (for supplement)
 p1 <- ggplot(d.c, aes(Evidence))+
   geom_histogram(aes(y = ..density..), bins = 10, fill = "skyblue", alpha = 0.7, boundary = 0) +
@@ -288,9 +407,6 @@ p9 <- ggplot(d.c, aes(double)) +
 (p1 | p2 | p3 | p4) /
   (p5 | p6 | p7 | p8 | p9)
 
-library(patchwork)
-
-
 # Two factor solution
 p8 <- ggplot(d.c, aes(Existence)) +
   geom_histogram(aes(y = ..density..), bins = 30, fill = "skyblue", alpha = 0.7, boundary = 0) +
@@ -324,63 +440,3 @@ colnames(INTERCEPT)[colnames(INTERCEPT) == "PA2"] <- "Transigence"
 
 symbolic_intercept <- INTERCEPT[nrow(INTERCEPT), 1]
 objectivity_intercept <- INTERCEPT[nrow(INTERCEPT), 2]
-
-#### Mixture modeling ####
-
-# Gaussian mixture model?
-library(mclust)
-
-d.cluster <- d.c %>% 
-  select(-domain)
-
-# how many clusters?
-m <- mclustBIC(d.cluster)
-summary(m)
-plot(m)
-ICL <- mclustICL(d.cluster)
-summary(ICL)
-
-mod1 <- Mclust(d.cluster, x = m, G=2, modelNames = "VVE")
-summary(mod1, parameters = TRUE)
-
-# plot
-plot(mod1, what = "classification")
-
-# Use RESIDUALIZED data for clustering
-d.cluster_resid <- residuals_df
-
-# Gaussian on residualized data
-m_gauss_resid <- mclustBIC(d.cluster_resid, G=1:9)
-plot(m_gauss_resid)
-m <- Mclust(d.cluster_resid, G=1:9)
-summary(m)
-plot(m, what = "classification")
-
-library(GGally)
-
-# Add cluster assignments to data
-d_with_clusters_gauss <- residuals_df
-d_with_clusters_gauss$cluster <- factor(m$classification,
-                                        labels=c("Group 1", "Group 2"))
-
-# Beautiful comprehensive pairs plot
-ggpairs(d_with_clusters_gauss, 
-        columns = c("really", "consider", "predict", "context", 
-                    "surprise", "bet", "mot", "jus", "double"),
-        aes(color = cluster, alpha = 0.6),
-        upper = list(continuous = wrap("cor", size = 3)),  # Correlations in upper
-        lower = list(continuous = wrap("points", alpha = 0.4, size = 0.8)),  # Scatter in lower
-        diag = list(continuous = wrap("densityDiag", alpha = 0.7))) +  # Densities on diagonal
-  scale_color_manual(values = c("#E69F00", "#56B4E9")) +
-  scale_fill_manual(values = c("#E69F00", "#56B4E9")) +
-  theme_minimal() +
-  theme(strip.text = element_text(size = 8),
-        axis.text = element_text(size = 6)) +
-  ggtitle("Gaussian Mixture Model (k=2): Complete Pairwise Analysis")
-
-# t-mixture on residualized data  
-fit_t_resid <- teigen(d.cluster_resid, Gs=1:9, verbose=TRUE)
-plot(fit_t_resid)
-cat("Gaussian on residuals: k=", 
-    which.max(apply(m_gauss_resid, 1, max, na.rm=TRUE)), "\n")
-cat("t-mixture on residuals: k=", fit_t_resid$G, "\n")
