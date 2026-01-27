@@ -1,0 +1,386 @@
+# libraries
+library(tidyverse)
+library(lme4)
+library(psych)
+library(corrplot)
+#for the notation
+options(scipen=999)
+
+# clean data
+DVs <- c("exi_1", "avl_1", "jus_1", "inv_1", "avd_1", "mot_1", "vul_1", "sen_1",
+         "really_1", "consider_1", "predict_1", "context_1", 
+         "surprise_1", "bet_1", "voluntarism_1", "double_1")
+
+d <- read.csv("lb.p1.csv") %>% 
+  slice(-c(1:2)) %>% 
+  mutate(domain = case_when(superstition != "" ~ "superstition",
+                            religious != "" ~ "religious",
+                            superlative != "" ~ "superlative",
+                            political != "" ~ "political")) %>% 
+  filter(age != "") %>% 
+  mutate(across(all_of(DVs), as.numeric)) %>% 
+  rename_all(~ gsub("_1$", "", .)) %>% 
+  dplyr::select(prolific, text, 
+                sen, exi, avl, jus, inv, avd, mot, vul, 
+                really, consider, predict, context,
+                surprise, bet, voluntarism, double, 
+                age, gen, race, domain)
+
+#reverse score items so that high scores are more evidency/really believe
+d$exi <- -1*(d$exi - 100)
+d$avd <- -1*(d$avd - 100)
+d$vul <- -1*(d$vul - 100)
+d$double <- -1*(d$double - 100)
+d$context <- -1*(d$context - 100)
+
+#### Factor analysis ####
+d.e <- d %>% 
+  dplyr::select(sen, exi, avl, jus, inv, avd, mot, vul)
+  
+
+## one factor solution
+one_factor <- fa(d.e, nfactors = 1, fm = "pa", rotate = "oblimin", scores = "tenBerge")
+one_factor <- data.frame(one_factor[["scores"]])
+colnames(one_factor)[colnames(one_factor) == "PA1"] <- "Evidence"
+
+## two factor solution
+two_factor <- fa(d.e, nfactors = 2, fm = "pa", rotate = "oblimin", scores = "tenBerge")
+two_factor <- data.frame(two_factor[["scores"]])
+colnames(two_factor)[colnames(two_factor) == "PA1"] <- "Available"
+colnames(two_factor)[colnames(two_factor) == "PA2"] <- "Transigence"
+
+## combine data
+d <- cbind(d, one_factor, two_factor)
+
+# correlation matrices
+
+## one factor
+d.c <- d %>% 
+  dplyr::select(really, consider, predict, context,
+                surprise, bet, mot, jus, double, domain)
+
+vars <- c("really", "consider", "predict", "context",
+          "surprise", "bet", "mot", "jus", "double")
+
+# Make matrix
+d.complete <- d.c[complete.cases(d.c[, c(vars, "domain")]), ]
+residuals_df <- data.frame(matrix(ncol = length(vars), nrow = nrow(d.complete)))
+colnames(residuals_df) <- vars
+for(var in vars) {
+  mod <- lmer(paste(var, "~ 1 + (1|domain)"), data = d.complete)
+  residuals_df[[var]] <- residuals(mod)
+}
+c <- corr.test(residuals_df, method = "pearson", alpha = 0.05, adjust = "holm")
+corrplot(c$r, 
+         p.mat = c$p, 
+         method = "color", 
+         type = "upper", 
+         insig = "pch", 
+         pch = "/",
+         pch.col = "grey20",
+         pch.cex = 2,
+         addCoef.col = "black", 
+         diag = TRUE,
+         title = "All domains",
+         tl.col = "black",
+         tl.cex = 0.8,
+         tl.srt = 45,
+         cl.pos = "n",
+         mar = c(0,0,2,0)
+)
+
+## two factor solution 
+d.t <- d %>% 
+  dplyr::select(Available, Transigence, really, consider, predict, context,
+                surprise, bet, voluntarism, double, domain)
+
+vars <- c("Available", "Transigence", "really", "consider", "predict", "context",
+          "surprise", "bet", "voluntarism", "double")
+
+# Make matrix
+d.complete <- d.t[complete.cases(d.t[, c(vars, "domain")]), ]
+residuals_df <- data.frame(matrix(ncol = length(vars), nrow = nrow(d.complete)))
+colnames(residuals_df) <- vars
+for(var in vars) {
+  mod <- lmer(paste(var, "~ 1 + (1|domain)"), data = d.complete)
+  residuals_df[[var]] <- residuals(mod)
+}
+c <- corr.test(residuals_df, method = "pearson", alpha = 0.05, adjust = "holm")
+corrplot(c$r, 
+         p.mat = c$p, 
+         method = "color", 
+         type = "upper", 
+         insig = "pch", 
+         pch = "/",
+         pch.col = "grey20",
+         pch.cex = 2,
+         addCoef.col = "black", 
+         diag = TRUE,
+         title = "All domains",
+         tl.col = "black",
+         tl.cex = 0.8,
+         tl.srt = 45,
+         cl.pos = "n",
+         mar = c(0,0,2,0)
+)
+
+# broken by domains
+superstitions <- d.complete %>% 
+  filter(domain == "superstition") %>% 
+  select(-domain)
+m <- cor(d.e)
+c <- corr.test(
+  d.e,
+  method = "pearson",
+  alpha = 0.05,
+  adjust = "holm"
+)
+corrplot(m, 
+         p.mat = c$p, 
+         method = "color", 
+         type = "upper", 
+         insig = "pch", 
+         pch = "/",
+         pch.col = "grey20",
+         pch.cex = 2,
+         addCoef.col = "black", 
+         diag = T,
+         title = "Superstitions",
+         tl.col = "black",
+         tl.cex = 0.8,
+         tl.srt = 45,
+         cl.pos = "n",
+         mar=c(0,0,2,0)
+)
+
+religion <- d.complete %>% 
+  filter(domain == "religious") %>% 
+  select(-domain)
+m <- cor(religion)
+c <- corr.test(
+  religion,
+  method = "pearson",
+  alpha = 0.05,
+  adjust = "holm"
+)
+corrplot(m, 
+         p.mat = c$p, 
+         method = "color", 
+         type = "upper", 
+         insig = "pch", 
+         pch = "/",
+         pch.col = "grey20",
+         pch.cex = 2,
+         addCoef.col = "black", 
+         diag = T,
+         title = "Religious",
+         tl.col = "black",
+         tl.cex = 0.8,
+         tl.srt = 45,
+         cl.pos = "n",
+         mar=c(0,0,2,0)
+)
+
+superlative <- d.complete %>% 
+  filter(domain == "superlative") %>% 
+  select(-domain)
+m <- cor(superlative)
+c <- corr.test(
+  superlative,
+  method = "pearson",
+  alpha = 0.05,
+  adjust = "holm"
+)
+corrplot(m, 
+         p.mat = c$p, 
+         method = "color", 
+         type = "upper", 
+         insig = "pch", 
+         pch = "/",
+         pch.col = "grey20",
+         pch.cex = 2,
+         addCoef.col = "black", 
+         diag = T,
+         title = "Superlative",
+         tl.col = "black",
+         tl.cex = 0.8,
+         tl.srt = 45,
+         cl.pos = "n",
+         mar=c(0,0,2,0)
+)
+
+political <- d.complete %>% 
+  filter(domain == "political") %>% 
+  select(-domain)
+m <- cor(political)
+c <- corr.test(
+  political,
+  method = "pearson",
+  alpha = 0.05,
+  adjust = "holm"
+)
+corrplot(m, 
+         p.mat = c$p, 
+         method = "color", 
+         type = "upper", 
+         insig = "pch", 
+         pch = "/",
+         pch.col = "grey20",
+         pch.cex = 2,
+         addCoef.col = "black", 
+         diag = T,
+         title = "Political",
+         tl.col = "black",
+         tl.cex = 0.8,
+         tl.srt = 45,
+         cl.pos = "n",
+         mar=c(0,0,2,0)
+)
+
+# Distributions of items (for supplement)
+p1 <- ggplot(d.c, aes(Evidence))+
+  geom_histogram(aes(y = ..density..), bins = 10, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  geom_vline(xintercept = -0.3, linetype = "dashed", color = "red") +
+  theme_minimal()
+
+p2 <- ggplot(d.c, aes(really))+
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+p3 <- ggplot(d.c, aes(consider))+
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+p4 <- ggplot(d.c, aes(predict))+
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+p5 <- ggplot(d.c, aes(context))+
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+p6 <- ggplot(d.c, aes(surprise))+
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+p7 <- ggplot(d.c, aes(bet))+
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+p8 <- ggplot(d.c, aes(voluntarism)) +
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+p9 <- ggplot(d.c, aes(double)) +
+  geom_histogram(aes(y = ..density..), bins = 5, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  theme_minimal()
+
+# Combine plots
+(p1 | p2 | p3 | p4) /
+  (p5 | p6 | p7 | p8 | p9)
+
+library(patchwork)
+
+
+# Two factor solution
+p8 <- ggplot(d.c, aes(Existence)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  geom_vline(xintercept = -0.35, linetype = "dashed", color = "red") +
+  theme_minimal()
+
+p9 <- ggplot(d.c, aes(Transigence)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "skyblue", alpha = 0.7, boundary = 0) +
+  geom_density(color = "salmon", linewidth = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  theme_minimal()
+
+
+p8+p9
+
+# Evidence intercept
+d.o <- d.e
+
+#pretend participant who answered 50 for everything
+new <- data.frame(matrix(50, nrow = 1, ncol = ncol(d.o)))
+colnames(new) <- colnames(d.o)
+
+# Add the new row to the dataset
+d_INTERCEPT <- rbind(d.o, new)
+
+factor.scores_INTERCEPT <- fa(d_INTERCEPT, nfactors = 2, fm = "pa", rotate = "oblimin", scores = "tenBerge")
+INTERCEPT <- data.frame(factor.scores_INTERCEPT[["scores"]])
+colnames(INTERCEPT)[colnames(INTERCEPT) == "PA1"] <- "Evidence"
+colnames(INTERCEPT)[colnames(INTERCEPT) == "PA2"] <- "Transigence"
+
+symbolic_intercept <- INTERCEPT[nrow(INTERCEPT), 1]
+objectivity_intercept <- INTERCEPT[nrow(INTERCEPT), 2]
+
+#### Mixture modeling ####
+
+# Gaussian mixture model?
+library(mclust)
+
+d.cluster <- d.c %>% 
+  select(-domain)
+
+# how many clusters?
+m <- mclustBIC(d.cluster)
+summary(m)
+plot(m)
+ICL <- mclustICL(d.cluster)
+summary(ICL)
+
+mod1 <- Mclust(d.cluster, x = m, G=2, modelNames = "VVE")
+summary(mod1, parameters = TRUE)
+
+# plot
+plot(mod1, what = "classification")
+
+# Use RESIDUALIZED data for clustering
+d.cluster_resid <- residuals_df
+
+# Gaussian on residualized data
+m_gauss_resid <- mclustBIC(d.cluster_resid, G=1:9)
+plot(m_gauss_resid)
+m <- Mclust(d.cluster_resid, G=1:9)
+summary(m)
+plot(m, what = "classification")
+
+library(GGally)
+
+# Add cluster assignments to data
+d_with_clusters_gauss <- residuals_df
+d_with_clusters_gauss$cluster <- factor(m$classification,
+                                        labels=c("Group 1", "Group 2"))
+
+# Beautiful comprehensive pairs plot
+ggpairs(d_with_clusters_gauss, 
+        columns = c("really", "consider", "predict", "context", 
+                    "surprise", "bet", "mot", "jus", "double"),
+        aes(color = cluster, alpha = 0.6),
+        upper = list(continuous = wrap("cor", size = 3)),  # Correlations in upper
+        lower = list(continuous = wrap("points", alpha = 0.4, size = 0.8)),  # Scatter in lower
+        diag = list(continuous = wrap("densityDiag", alpha = 0.7))) +  # Densities on diagonal
+  scale_color_manual(values = c("#E69F00", "#56B4E9")) +
+  scale_fill_manual(values = c("#E69F00", "#56B4E9")) +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 8),
+        axis.text = element_text(size = 6)) +
+  ggtitle("Gaussian Mixture Model (k=2): Complete Pairwise Analysis")
+
+# t-mixture on residualized data  
+fit_t_resid <- teigen(d.cluster_resid, Gs=1:9, verbose=TRUE)
+plot(fit_t_resid)
+cat("Gaussian on residuals: k=", 
+    which.max(apply(m_gauss_resid, 1, max, na.rm=TRUE)), "\n")
+cat("t-mixture on residuals: k=", fit_t_resid$G, "\n")
