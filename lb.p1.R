@@ -99,6 +99,13 @@ ggpairs(d_with_clusters_gauss,
 
 ##### similarity of covariance matrices #####
 
+# Extract covariance matrices for each cluster
+cov1 <- mod1$parameters$variance$sigma[,,1]
+cov2 <- mod1$parameters$variance$sigma[,,2]
+
+# Full sample covariance (pooled across groups)
+cov_full <- cov(d.cluster)
+
 # Convert to correlations (removes scale/variance effects)
 cor1 <- cov2cor(cov1)
 cor2 <- cov2cor(cov2)
@@ -200,8 +207,7 @@ for(item in item_names) {
     geom_density(data = d_middle, aes(x = .data[[item]], y = after_stat(density) * prop_middle), 
                  fill = "#56B4E9", alpha = 0.7, color = "#0072B2", linewidth = 0.8) +
     theme_minimal() +
-    labs(title = item, x = NULL, y = "Density") +
-    theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10))
+    labs(title = item, x = NULL, y = "Density")
   
   plots_list[[item]] <- p
 }
@@ -209,15 +215,63 @@ for(item in item_names) {
 # Combine
 wrap_plots(plots_list, ncol = 3) +
   plot_annotation(
-    title = "Item Distributions: Full Sample vs. Middle Factor Scores",
-    subtitle = sprintf("Gray = All participants | Blue = Factor scores within ±0.5 SD (n = %d/%d, %.1f%%)",
+    title = "Item Distributions",
+    subtitle = sprintf("",
                        sum(d_with_factors$in_middle_range),
                        nrow(d_with_factors),
-                       100 * mean(d_with_factors$in_middle_range)),
-    theme = theme(plot.title = element_text(size = 14, face = "bold"))
+                       100 * mean(d_with_factors$in_middle_range))
+  )
+
+# Get factor scores
+factor_scores <- predict(fit_cfa)
+d_with_factors <- d.cluster %>%
+  mutate(factor_score = factor_scores[,1])
+
+# Identify individuals within ±0.5 SD of mean factor score
+mean_fs <- mean(d_with_factors$factor_score)
+sd_fs <- sd(d_with_factors$factor_score)
+lower_bound <- mean_fs - 0.5 * sd_fs
+upper_bound <- mean_fs + 0.5 * sd_fs
+
+# Flag individuals in this range
+d_with_factors <- d_with_factors %>%
+  mutate(in_middle_range = factor_score >= lower_bound & factor_score <= upper_bound)
+
+# Subset for middle range
+d_middle <- d_with_factors %>% filter(in_middle_range)
+
+# Create plots for each item
+item_names <- colnames(d.cluster)
+plots_list <- list()
+
+for(item in item_names) {
+  p <- ggplot() +
+    # Full distribution (background)
+    geom_histogram(data = d.cluster, aes(x = .data[[item]]), 
+                   fill = "gray70", color = "black", alpha = 0.4, 
+                   bins = 8, position = "identity") +
+    # Middle range distribution (overlay)
+    geom_histogram(data = d_middle, aes(x = .data[[item]]), 
+                   fill = "#56B4E9", color = "#0072B2", alpha = 0.7,
+                   bins = 8, position = "identity") +
+    theme_minimal() +
+    labs(title = item, x = NULL, y = "Count")
+  
+  plots_list[[item]] <- p
+}
+
+# Combine
+wrap_plots(plots_list, ncol = 3) +
+  plot_annotation(
+    title = "Item Distributions",
+    subtitle = sprintf("",
+                       sum(d_with_factors$in_middle_range),
+                       nrow(d_with_factors),
+                       100 * mean(d_with_factors$in_middle_range))
   )
 
 #### Correlation plots ####
+
 colnames(residuals_df) <- vars
 for(var in vars) {
   mod <- lmer(paste(var, "~ 1 + (1|domain)"), data = d.complete)
