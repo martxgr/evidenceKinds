@@ -55,7 +55,7 @@ for(var in vars) {
 # configure
 # d.cluster <- residuals_df
 d.cluster <- d.complete %>% 
-  filter(domain == "religious") %>% 
+  # filter(domain == "religious") %>% 
   dplyr::select(-domain)
 
 # how many clusters?
