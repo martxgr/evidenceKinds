@@ -297,12 +297,12 @@ ggplot(plot_df2, aes(x = really_believe_z_j, y = value_j)) +
 
 # prepare for clustering
 d.c <- d %>% 
-  dplyr::select(jus, mot, consider, predict, context, surprise, bet, double, domain)
+  dplyr::select(jus, mot, consider, predict, context, surprise, bet, double, really, domain)
 
 # ,dishonest, serious, sense, single, really, deeper, domain
 
 vars <- c("really", "consider", "predict", "context",
-          "surprise", "bet", "mot", "jus", "double")
+          "surprise", "bet", "mot", "jus", "double", "really")
 
 d.complete <- d.c[complete.cases(d.c[, c(vars, "domain")]), ]
 residuals_df <- data.frame(matrix(ncol = length(vars), nrow = nrow(d.complete)))
@@ -316,7 +316,7 @@ for(var in vars) {
 # configure
 # d.cluster <- residuals_df
 d.cluster <- d.c %>% 
-  filter(!(domain %in% c("religious", "political"))) %>% 
+  filter((domain %in% c("religious", "political"))) %>% 
   dplyr::select(-domain)
 
 # how many clusters?
@@ -325,7 +325,7 @@ summary(m)
 plot(m)
 
 # analysis
-mod1 <- Mclust(d.cluster, x = m, G=2, modelNames = "VVE")
+mod1 <- Mclust(d.cluster, x = m, G=2, modelNames = "VEV")
 summary(mod1, parameters = TRUE)
 
 # plot
@@ -352,6 +352,15 @@ library(corrplot)
 
 # Calculate p-values for the full dataset (you already have pmat1 and pmat2)
 pmat_full <- cor.mtest(d.cluster)$p
+
+# p-values for each cluster based on assigned cases
+pmat1 <- cor.mtest(d_with_clusters_gauss %>% 
+                     filter(cluster == "Group 1") %>% 
+                     select(-cluster))$p
+
+pmat2 <- cor.mtest(d_with_clusters_gauss %>% 
+                     filter(cluster == "Group 2") %>% 
+                     select(-cluster))$p
 
 # Set up a 1x3 plot layout
 par(mfrow = c(1, 3))
