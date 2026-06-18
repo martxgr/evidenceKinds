@@ -53,7 +53,7 @@ for(var in vars) {
 
 #### GMM ####
 # configure
-# d.cluster <- residuals_df
+d.cluster <- residuals_df
 d.cluster <- d.complete %>% 
   # filter(domain == "religious") %>% 
   dplyr::select(-domain)
@@ -64,7 +64,7 @@ summary(m)
 plot(m)
 
 # analysis
-mod1 <- Mclust(d.cluster, x = m, G=2, modelNames = "VEV")
+mod1 <- Mclust(d.cluster, x = m, G=2, modelNames = "VVV")
 summary(mod1, parameters = TRUE)
 
 # plot

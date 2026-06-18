@@ -42,7 +42,8 @@ d$context <- -1*(d$context - 100)
 # prepare for clustering
 d.c <- d %>% 
   dplyr::select(really, consider, predict, context,
-                surprise, bet, mot, jus, double, domain)
+                surprise, bet, mot, jus, double, domain) %>% 
+  slice_sample(prop = 0.50)
 
 vars <- c("really", "consider", "predict", "context",
           "surprise", "bet", "mot", "jus", "double")
